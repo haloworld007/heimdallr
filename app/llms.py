@@ -1,139 +1,64 @@
-
 import os
+import logging
+import litellm
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Optional
 
+# 获取日志记录器
+logger = logging.getLogger(__name__)
+
 class LLMManager:
+    """一个极简的、只支持单个 OpenAI 模型配置的 LLM 管理器。"""
     def __init__(self):
-        # OpenAI 配置
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.openai_base_url = os.getenv("OPENAI_BASE_URL")  # 自定义API地址，比如代理或私有部署
-        self.openai_organization = os.getenv("OPENAI_ORGANIZATION")  # 组织ID
-        self.openai_default_model = os.getenv("OPENAI_DEFAULT_MODEL", "gpt-4-turbo")
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        self.base_url = os.getenv("OPENAI_BASE_URL")
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4-turbo")
         
-        # Gemini 配置
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
-        self.gemini_default_model = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-pro")
-        
-        # 全局配置
-        self.default_temperature = float(os.getenv("LLM_TEMPERATURE", "0.7"))
-        self.request_timeout = int(os.getenv("LLM_TIMEOUT", "60"))  # 请求超时时间
-        self.max_retries = int(os.getenv("LLM_MAX_RETRIES", "3"))  # 最大重试次数
+        if not self.api_key:
+            logger.error("未在环境变量中找到 OPENAI_API_KEY。LLM 将无法工作。")
+            raise ValueError("OPENAI_API_KEY is not set.")
 
-        if not self.openai_api_key and not self.gemini_api_key:
-            raise ValueError("错误：必须在 .env 文件中设置 OPENAI_API_KEY 或 GEMINI_API_KEY 中的至少一个。")
+        # 兼容性修复：如果模型不是官方的 gpt- 系列，则为 litellm 创建一个别名
+        # 这会告诉 litellm 将自定义模型（如 qwen-plus-latest）作为 openai 兼容模型处理
+        if not self.model.startswith("gpt-"):
+            # The format is {alias: "openai/actual_model_name"}
+            # This tells litellm: "When you see `alias`, treat it as an openai model called `actual_model_name`"
+            litellm.model_alias_map[self.model] = f"openai/{self.model}"
+            logger.info(f"检测到自定义模型 '{self.model}'，已为其自动创建 litellm 别名。")
 
-    def get_openai_llm(self, 
-                       model: Optional[str] = None, 
-                       temperature: Optional[float] = None,
-                       base_url: Optional[str] = None,
-                       organization: Optional[str] = None,
-                       **kwargs):
+    def get_llm(self, temperature: float = 0.7, **kwargs) -> ChatOpenAI:
         """
-        创建 OpenAI LLM 实例
-        
+        创建并返回一个 ChatOpenAI 实例。
+
         Args:
-            model: 模型名称，默认使用环境变量配置
-            temperature: 温度参数，默认使用环境变量配置
-            base_url: API地址，用于代理或私有部署
-            organization: 组织ID
-            **kwargs: 其他 ChatOpenAI 参数
+            temperature: 模型温度。
+            **kwargs: 其他传递给 ChatOpenAI 的参数。
+
+        Returns:
+            一个 ChatOpenAI 实例。
         """
-        if not self.openai_api_key:
-            print("警告：未找到 OPENAI_API_KEY，无法创建 OpenAI LLM。将尝试使用备用模型。")
-            return self.get_gemini_llm()
-        
-        # 使用传入参数或环境变量配置
         config = {
-            "api_key": self.openai_api_key,
-            "model": model or self.openai_default_model,
-            "temperature": temperature if temperature is not None else self.default_temperature,
-            "request_timeout": self.request_timeout,
-            "max_retries": self.max_retries,
+            "model": self.model,
+            "api_key": self.api_key,
+            "temperature": temperature,
+            **kwargs
         }
+
+        if self.base_url:
+            config["base_url"] = self.base_url
         
-        # 可选参数
-        if base_url or self.openai_base_url:
-            config["base_url"] = base_url or self.openai_base_url
-            
-        if organization or self.openai_organization:
-            config["organization"] = organization or self.openai_organization
-        
-        # 合并额外参数
-        config.update(kwargs)
-        
+        logger.info(f"Final ChatOpenAI config: {config}")
+        logger.debug(f"创建 LLM 实例，模型: {self.model}, 温度: {temperature}")
         return ChatOpenAI(**config)
 
-    def get_gemini_llm(self, 
-                       model: Optional[str] = None, 
-                       temperature: Optional[float] = None,
-                       **kwargs):
-        """
-        创建 Gemini LLM 实例
-        
-        Args:
-            model: 模型名称，默认使用环境变量配置
-            temperature: 温度参数，默认使用环境变量配置
-            **kwargs: 其他 ChatGoogleGenerativeAI 参数
-        """
-        if not self.gemini_api_key:
-            print("警告：未找到 GEMINI_API_KEY，无法创建 Gemini LLM。将尝试使用备用模型。")
-            return self.get_openai_llm()
-        
-        config = {
-            "google_api_key": self.gemini_api_key,
-            "model": model or self.gemini_default_model,
-            "temperature": temperature if temperature is not None else self.default_temperature,
-        }
-        
-        # 合并额外参数
-        config.update(kwargs)
-        
-        return ChatGoogleGenerativeAI(**config)
-
-    def get_fast_llm(self):
-        """获取一个用于执行简单、快速任务的LLM。"""
-        # 优先使用更经济的OpenAI模型，如果不可用则使用Gemini
-        if self.openai_api_key:
-            return self.get_openai_llm(
-                model=os.getenv("OPENAI_FAST_MODEL", "gpt-3.5-turbo"), 
-                temperature=0.3
-            )
-        return self.get_gemini_llm(temperature=0.3)
-
-    def get_smart_llm(self):
-        """获取一个用于执行复杂、需要深度推理任务的LLM。"""
-        # 优先使用能力更强的GPT-4模型，如果不可用则使用Gemini
-        if self.openai_api_key:
-            return self.get_openai_llm(
-                model=os.getenv("OPENAI_SMART_MODEL", "gpt-4-turbo"), 
-                temperature=0.5
-            )
-        return self.get_gemini_llm(
-            model=os.getenv("GEMINI_SMART_MODEL", "gemini-pro"),
-            temperature=0.5
-        )
-
-    def get_llm_config_info(self):
-        """获取当前LLM配置信息，用于调试"""
+    def get_llm_config_info(self) -> dict:
+        """获取当前LLM配置信息，用于调试。"""
         return {
-            "openai": {
-                "has_key": bool(self.openai_api_key),
-                "base_url": self.openai_base_url,
-                "organization": self.openai_organization,
-                "default_model": self.openai_default_model,
-            },
-            "gemini": {
-                "has_key": bool(self.gemini_api_key),
-                "default_model": self.gemini_default_model,
-            },
-            "global": {
-                "temperature": self.default_temperature,
-                "timeout": self.request_timeout,
-                "max_retries": self.max_retries,
-            }
+            "provider": "OpenAI",
+            "model": self.model,
+            "base_url": self.base_url or "https://api.openai.com/v1",
+            "api_key_set": bool(self.api_key)
         }
 
-# 创建一个全局实例，方便在项目中其他地方直接导入和使用
+# 创建一个全局实例
 llm_manager = LLMManager()

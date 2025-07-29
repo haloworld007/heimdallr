@@ -1,4 +1,3 @@
-
 from crewai import Agent
 
 class CommunicationsOfficerAgent(Agent):
