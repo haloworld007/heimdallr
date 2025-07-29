@@ -1,4 +1,4 @@
-# Heimdallr: AI 告警与 Issue 分析助手
+# Heimdallr
 
 ## 开发入门
 
