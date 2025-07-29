@@ -14,7 +14,7 @@ from app.tasks import (
     SolutionGenerationTask, 
     ReportingTask
 )
-from app.llms import llm_manager
+from app.llms import llm_registry
 
 # 获取一个日志记录器实例
 logger = logging.getLogger(__name__)
@@ -23,8 +23,8 @@ class HeimdallrCrew:
 
     def __init__(self, issue: str):
         self.issue = issue
-        # 初始化一个通用的 LLM 实例
-        self.llm = llm_manager.get_llm()
+        # 从注册表中获取默认的 LLM 实例
+        self.llm = llm_registry.get("default")
 
     def setup_crew(self):
         logger.info("开始组建 Crew...")
@@ -34,7 +34,7 @@ class HeimdallrCrew:
         rca_agent = RootCauseAnalysisAgent(llm=self.llm)
         solution_agent = SolutionsArchitectAgent(llm=self.llm)
         communication_agent = CommunicationsOfficerAgent(llm=self.llm)
-        logger.debug("所有 Agent 已使用通用 LLM 初始化。")
+        logger.debug("所有 Agent 已使用 '%s' LLM 初始化。", self.llm.model_name)
 
         # 创建任务
         triage_task = TriageTask(agent=triage_agent, issue=self.issue)
@@ -64,9 +64,6 @@ class HeimdallrCrew:
                 reporting_task
             ],
             process=Process.sequential,
-            # 注意：当所有 agent 都被指定了 llm 时，这里的 llm 参数是可选的
-            # 但为了清晰，我们仍然可以保留它作为备用
-            llm=self.llm,
             verbose=True
         )
         logger.info("Crew 组建完成。")

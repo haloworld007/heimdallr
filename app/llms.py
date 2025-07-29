@@ -1,64 +1,75 @@
 import os
 import logging
-import litellm
 from langchain_openai import ChatOpenAI
-from typing import Optional
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.language_models.chat_models import BaseChatModel
+from config.llm_config import LLM_CONFIG
 
 # 获取日志记录器
 logger = logging.getLogger(__name__)
 
-class LLMManager:
-    """一个极简的、只支持单个 OpenAI 模型配置的 LLM 管理器。"""
+class LLMRegistry:
+    """一个基于配置的、可根据服务商选择不同实现的智能 LLM 工厂。"""
     def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        self.base_url = os.getenv("OPENAI_BASE_URL")
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4-turbo")
-        
-        if not self.api_key:
-            logger.error("未在环境变量中找到 OPENAI_API_KEY。LLM 将无法工作。")
-            raise ValueError("OPENAI_API_KEY is not set.")
+        self._llms = {}
+        self._register_all()
 
-        # 兼容性修复：如果模型不是官方的 gpt- 系列，则为 litellm 创建一个别名
-        # 这会告诉 litellm 将自定义模型（如 qwen-plus-latest）作为 openai 兼容模型处理
-        if not self.model.startswith("gpt-"):
-            # The format is {alias: "openai/actual_model_name"}
-            # This tells litellm: "When you see `alias`, treat it as an openai model called `actual_model_name`"
-            litellm.model_alias_map[self.model] = f"openai/{self.model}"
-            logger.info(f"检测到自定义模型 '{self.model}'，已为其自动创建 litellm 别名。")
+    def _register_all(self):
+        """读取配置并注册所有定义的 LLM。"""
+        logger.info("开始注册所有 LLM...")
+        for name, config in LLM_CONFIG.items():
+            try:
+                self._register(name, config)
+            except Exception as e:
+                logger.error(f"注册 LLM '{name}' 失败: {e}", exc_info=True)
 
-    def get_llm(self, temperature: float = 0.7, **kwargs) -> ChatOpenAI:
+    def _register(self, name: str, config: dict):
         """
-        创建并返回一个 ChatOpenAI 实例。
-
-        Args:
-            temperature: 模型温度。
-            **kwargs: 其他传递给 ChatOpenAI 的参数。
-
-        Returns:
-            一个 ChatOpenAI 实例。
+        根据单个配置，使用最合适的 LangChain 类来注册一个 LLM 实例。
         """
-        config = {
-            "model": self.model,
-            "api_key": self.api_key,
-            "temperature": temperature,
-            **kwargs
-        }
+        provider = config.get("provider", "openai").lower()
+        model_name = config.get("model_name")
+        api_key_env = config.get("api_key_env")
+        base_url_env = config.get("base_url_env")
 
-        if self.base_url:
-            config["base_url"] = self.base_url
+        if not all([model_name, api_key_env]):
+            logger.error(f"LLM '{name}' 的配置不完整 (缺少 model_name 或 api_key_env)，跳过注册。")
+            return
+
+        api_key = os.getenv(api_key_env)
+        if not api_key:
+            logger.warning(f"未找到环境变量 '{api_key_env}'，跳过注册 LLM '{name}'。")
+            return
+
+        llm_instance = None
         
-        logger.info(f"Final ChatOpenAI config: {config}")
-        logger.debug(f"创建 LLM 实例，模型: {self.model}, 温度: {temperature}")
-        return ChatOpenAI(**config)
+        # 构造 LiteLLM 能直接理解的、无歧义的模型标识符
+        # 这是解决所有问题的核心
+        model_identifier = f"{provider}/{model_name}"
 
-    def get_llm_config_info(self) -> dict:
-        """获取当前LLM配置信息，用于调试。"""
-        return {
-            "provider": "OpenAI",
-            "model": self.model,
-            "base_url": self.base_url or "https://api.openai.com/v1",
-            "api_key_set": bool(self.api_key)
-        }
+        base_params = {"model": model_identifier, "api_key": api_key, "temperature": 0.7}
+
+        if provider == "openai":
+            if base_url_env and (base_url := os.getenv(base_url_env)):
+                base_params["base_url"] = base_url
+            llm_instance = ChatOpenAI(**base_params)
+        
+        else:
+            logger.warning(f"不支持的服务商: '{provider}'。跳过注册 '{name}'。")
+            return
+
+        self._llms[name] = llm_instance
+        logger.info(f"✅ 成功注册 LLM: '{name}' (标识: {model_identifier})。")
+
+    def get(self, name: str) -> BaseChatModel:
+        """
+        从注册表中获取一个已命名的 LLM 实例。
+        """
+        llm = self._llms.get(name)
+        if not llm:
+            logger.error(f"请求的 LLM '{name}' 未被注册或注册失败。")
+            raise ValueError(f"LLM '{name}' not found.")
+        return llm
 
 # 创建一个全局实例
-llm_manager = LLMManager()
+llm_registry = LLMRegistry()

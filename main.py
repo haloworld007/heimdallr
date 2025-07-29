@@ -1,10 +1,14 @@
 import os
 import sys
 import logging
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
+
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 from app.crew import HeimdallrCrew
-from app.llms import llm_manager
 from app.logging_config import setup_logging
 
 # 在应用启动时配置日志
@@ -16,18 +20,10 @@ logger = logging.getLogger(__name__)
 def check_environment():
     """检查环境变量配置"""
     openai_key = os.getenv("OPENAI_API_KEY")
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    
-    if not openai_key and not gemini_key:
-        logger.error("未找到API密钥配置")
-        logger.error("请在项目根目录创建 .env 文件，并配置 OPENAI_API_KEY 或 GEMINI_API_KEY")
+    if not openai_key:
+        logger.error("未找到API密钥配置: OPENAI_API_KEY")
         return False
-    
-    if openai_key:
-        logger.info("检测到 OpenAI API 密钥")
-    if gemini_key:
-        logger.info("检测到 Gemini API 密钥")
-    
+    logger.info("✅ 检测到 OpenAI API 密钥")
     return True
 
 # 初始化 FastAPI 应用
@@ -72,21 +68,6 @@ async def health_check():
         "service": "Heimdallr AI Diagnosis Assistant",
         "version": "1.0.0"
     }
-
-@app.get("/config")
-async def config_info():
-    """获取LLM配置信息，用于调试"""
-    try:
-        config = llm_manager.get_llm_config_info()
-        return {
-            "status": "success",
-            "config": config
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
 
 # 如果直接运行此文件，用于本地开发
 if __name__ == "__main__":
