@@ -1,18 +1,18 @@
 import logging
 from crewai import Crew, Process
 from app.agents import (
-    TriageAgent, 
-    EnrichmentAgent, 
-    RootCauseAnalysisAgent, 
-    SolutionsArchitectAgent, 
-    CommunicationsOfficerAgent
+    TriageAgent,
+    EnrichmentAgent,
+    RootCauseAnalysisAgent,
+    SolutionsArchitectAgent,
+    CommunicationsOfficerAgent,
 )
 from app.tasks import (
-    TriageTask, 
-    EnrichmentTask, 
-    RootCauseAnalysisTask, 
-    SolutionGenerationTask, 
-    ReportingTask
+    TriageTask,
+    EnrichmentTask,
+    RootCauseAnalysisTask,
+    SolutionGenerationTask,
+    ReportingTask,
 )
 from app.llms import llm_registry
 
@@ -42,29 +42,29 @@ class HeimdallrCrew:
         rca_task = RootCauseAnalysisTask(agent=rca_agent, context=[enrichment_task])
         solution_task = SolutionGenerationTask(agent=solution_agent, context=[rca_task])
         reporting_task = ReportingTask(
-            agent=communication_agent, 
-            context=[triage_task, enrichment_task, rca_task, solution_task]
+            agent=communication_agent,
+            context=[triage_task, enrichment_task, rca_task, solution_task],
         )
         logger.debug("所有 Task 已创建。")
 
         # 组建Crew
         crew = Crew(
             agents=[
-                triage_agent, 
-                enrichment_agent, 
-                rca_agent, 
-                solution_agent, 
-                communication_agent
+                triage_agent,
+                enrichment_agent,
+                rca_agent,
+                solution_agent,
+                communication_agent,
             ],
             tasks=[
-                triage_task, 
-                enrichment_task, 
-                rca_task, 
-                solution_task, 
-                reporting_task
+                triage_task,
+                enrichment_task,
+                rca_task,
+                solution_task,
+                reporting_task,
             ],
             process=Process.sequential,
-            verbose=True
+            verbose=True,
         )
         logger.info("Crew 组建完成。")
         return crew

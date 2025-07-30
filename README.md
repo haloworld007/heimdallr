@@ -2,47 +2,72 @@
 
 ## 开发入门
 
-本项目基于 FastAPI 和 CrewAI 构建。以下是本地开发环境的启动和调试指南。
+本项目基于 FastAPI 和 CrewAI 构建，使用 `uv` 作为现代化的 Python 包管理器。以下是本地开发环境的启动和调试指南。
 
-### 1. 环境设置
+### 1. 前置要求
 
-**创建虚拟环境**
+**安装 uv**
+
+如果你还没有安装 uv，请先安装：
 
 ```bash
-python3 -m venv venv
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 或使用 pip
+pip install uv
 ```
 
-**激活虚拟环境**
+### 2. 环境设置
+
+**一键设置开发环境**
+
+uv 会自动管理 Python 版本和虚拟环境：
 
 ```bash
-source venv/bin/activate
-```
-
-**安装依赖**
-
-```bash
-pip install -r requirements.txt
+# 自动创建虚拟环境并安装所有依赖
+uv sync
 ```
 
 **配置环境变量**
 
-复制 `env.example` 文件为 `.env`，并填入必要的 API 密钥。
+复制 `env.example` 文件为 `.env`，并填入必要的 API 密钥：
 
 ```bash
 cp env.example .env
 ```
 
-### 2. 启动 Web 服务
+**安装开发依赖（可选）**
 
-执行以下命令以热重载模式启动 FastAPI 应用：
+如果需要开发工具（测试、代码格式化等）：
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv sync --extra dev
 ```
 
-服务启动后，你可以通过两种方式进行测试：
+### 3. 启动 Web 服务
 
-**A) 使用自动生成的 API 文档 (推荐)**
+**开发模式（推荐）**
+
+使用 uv 运行，自动激活虚拟环境：
+
+```bash
+# 开发模式，支持热重载
+uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**生产模式**
+
+```bash
+# 生产模式
+uv run python main.py
+```
+
+### 4. 测试服务
+
+服务启动后，你可以通过以下方式进行测试：
+
+**A) 使用自动生成的 API 文档（推荐）**
 
 FastAPI 会自动生成交互式的 API 文档。启动服务后，在浏览器中打开：
 
@@ -61,3 +86,61 @@ curl -X POST http://localhost:8000/analyze \
     "text": "生产环境数据库主节点 CPU 使用率超过 90%，持续 5 分钟。"
 }'
 ```
+
+### 5. 开发工具
+
+**添加新依赖**
+
+```bash
+# 添加生产依赖
+uv add package-name
+
+# 添加开发依赖
+uv add --dev package-name
+```
+
+**代码格式化**
+
+```bash
+# 格式化代码
+uv run black .
+uv run isort .
+
+# 类型检查
+uv run mypy .
+```
+
+**运行测试**
+
+```bash
+uv run pytest
+```
+
+### 6. 项目结构
+
+```
+heimdallr/
+├── pyproject.toml          # 项目配置和依赖管理
+├── .python-version         # Python 版本锁定
+├── uv.lock                # 精确依赖锁定文件（自动生成）
+├── .env                   # 环境变量配置
+├── main.py                # FastAPI 应用入口
+├── app/                   # 应用核心代码
+│   ├── crew.py           # CrewAI 编排
+│   ├── agents/           # AI 智能体
+│   ├── tasks/            # 任务定义
+│   └── tools/            # 工具集
+└── docs/                  # 文档
+```
+
+### 7. 迁移说明
+
+本项目已从传统的 `requirements.txt` 迁移到现代化的 `uv` 包管理器：
+
+- ✅ **更快的依赖安装**：比 pip 快 10-100 倍
+- ✅ **自动虚拟环境管理**：无需手动创建和激活
+- ✅ **精确依赖锁定**：确保团队环境一致性
+- ✅ **更好的依赖解析**：自动处理版本冲突
+- ✅ **现代化配置**：使用 `pyproject.toml` 统一管理
+
+如果你是从旧版本迁移，请删除旧的 `venv/` 目录并运行 `uv sync` 重新设置环境。
