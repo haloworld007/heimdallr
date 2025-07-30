@@ -98,18 +98,59 @@ class HeimdallrFlow(Flow[DiagnosisState]):
     def execute_dynamic_workflow(self, input_type: str):
         """Step 2: 执行动态工作流 - 根据输入类型选择并执行相应的处理流程"""
         logger.info(f"开始执行动态工作流，输入类型: {input_type}")
-        
+
         try:
-            # 使用动态工作流路由器执行分析
-            self.workflow_router.route_and_execute(self.state)
-            
-            # 检查是否有最终报告
-            final_report_result = self.state.get_analysis_result('comprehensive_report')
-            if final_report_result and final_report_result.success:
-                self.state.final_report = final_report_result.result_data.get('raw_output', str(final_report_result.result_data))
+            if input_type == InputType.UNKNOWN.value:
+                logger.info("输入类型为未知，执行通用问答流程。")
+                
+                # 创建一个通用的问答Agent
+                qa_agent = Agent(
+                    role='通用问答助手',
+                    goal='友好地回应无法识别的用户查询，并引导用户提供更清晰的指令',
+                    backstory=(
+                        '你是一个乐于助人的AI助手。当你不理解用户的请求时，'
+                        '你会礼貌地说明情况，并介绍自己能做什么，'
+                        '比如分析告警、查询Jira工单或搜索日志，'
+                        '然后请用户提供更具体的信息。'
+                    ),
+                    llm=self.llm,
+                    verbose=True,
+                    allow_delegation=False,
+                    max_iter=1,
+                    memory=False
+                )
+                
+                # 创建一个生成友好回复的Task
+                qa_task = Task(
+                    description=f"""用户输入了以下内容，但系统无法识别其意图：
+"{self.state.input_text}"
+
+你的任务是：
+1. 承认你没有完全理解这个请求。
+2. 简要介绍你的核心能力（分析技术告警、Jira工单、日志查询请求）。
+3. 友好地请求用户提供更具体、更清晰的指令。
+4. 回复必须是中文。""",
+                    expected_output="一段友好、有帮助的中文回复。",
+                    agent=qa_agent
+                )
+                
+                # 执行任务
+                crew = Crew(agents=[qa_agent], tasks=[qa_task], process=Process.sequential, verbose=False)
+                result = crew.kickoff()
+                
+                self.state.final_report = result.raw if result else "抱歉，我没有理解您的意思。您可以尝试提供告警信息、Jira工单号或日志查询请求，我会尽力为您分析。"
+
             else:
-                # 如果没有生成综合报告，生成基础报告
-                self.state.final_report = self._get_basic_summary()
+                # 使用动态工作流路由器执行分析
+                self.workflow_router.route_and_execute(self.state)
+                
+                # 检查是否有最终报告
+                final_report_result = self.state.get_analysis_result('comprehensive_report')
+                if final_report_result and final_report_result.success:
+                    self.state.final_report = final_report_result.result_data.get('raw_output', str(final_report_result.result_data))
+                else:
+                    # 如果没有生成综合报告，生成基础报告
+                    self.state.final_report = self._get_basic_summary()
             
             # 记录总执行时间
             total_time = time.time() - self.state.input_timestamp.timestamp()
